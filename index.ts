@@ -16,17 +16,22 @@ function fixname(name: string) {
 	return reserved.check(ccName) ? `$${ccName}$` : ccName
 }
 
-const formatCSSDefinition = (name: string, classNames: string[]) => `\
+const formatCSSDefinition = (name: string, classNames: string[], manualInjectName: string) => `\
 ${classNames.filter(n => !/-/.test(n)).map(t => `export const ${t}: string`).join('\n')}
+${manualInjectName ? `export const ${manualInjectName}: () => void\n` : ''}\
 interface Namespace {
 	${classNames.map(t => `${JSON.stringify(t)}: string,`).join('\n\t')}
 }
 declare const ${name}: Namespace
 export default ${name}`
 
-async function writeCSSDefinition(cssPath: string, classNames: string[]): Promise<string> {
+async function writeCSSDefinition(
+	cssPath: string,
+	classNames: string[],
+	manualInjectName: string
+): Promise<string> {
 	const name = fixname(path.basename(cssPath, '.css'))
-	const definition = formatCSSDefinition(name, classNames)
+	const definition = formatCSSDefinition(name, classNames, manualInjectName)
 	const dPath = `${cssPath}.d.ts`
 	await fs.writeFile(dPath, `${definition}\n`)
 	return dPath
@@ -36,10 +41,12 @@ export type DefinitionCB = (dPath: string) => void | PromiseLike<void>
 
 class CSSExports {
 	writeDefinitions: boolean | DefinitionCB
+	manualInjectName: postcss.Options['manualInjectName']
 	exports: { [moduleName: string]: postcssModules.ExportTokens }
 	
-	constructor(writeDefinitions: boolean | DefinitionCB) {
+	constructor(writeDefinitions: boolean | DefinitionCB, manualInjectName: postcss.Options['manualInjectName'] = '') {
 		this.writeDefinitions = writeDefinitions
+		this.manualInjectName = manualInjectName
 	}
 	
 	definitionCB = async (dPath: string) => {
@@ -57,7 +64,8 @@ class CSSExports {
 			ccTokens[className] = exportTokens[className]
 		}
 		if (this.writeDefinitions) {
-			const dPath = await writeCSSDefinition(id, Object.keys(ccTokens))
+			const manualInjectName = (typeof this.manualInjectName === 'function' ? this.manualInjectName(id) : this.manualInjectName) || ''
+			const dPath = await writeCSSDefinition(id, Object.keys(ccTokens), manualInjectName)
 			await this.definitionCB(dPath)
 		}
 	}
@@ -75,6 +83,8 @@ export default function eslintPluginPostCSSModules(options: Options = {}): Promi
 		writeDefinitions = false,
 		modules = {},
 		namedExports = fixname,
+		extract,
+		manualInjectName = '',
 		...rest
 	} = options
 	if (rest.getExport) {
@@ -87,13 +97,15 @@ export default function eslintPluginPostCSSModules(options: Options = {}): Promi
 	if (modulesOptions === false || modulesOptions.getJSON) {
 		throw new Error("'rollup-plugin-postcss-modules' provides a 'postcss-modules' plugin and its `getJSON()`. You cannot specify `modules.getJSON`")
 	}
-	
-	const { getJSON } = new CSSExports(writeDefinitions)
+
+	const { getJSON } = new CSSExports(writeDefinitions, !extract ? manualInjectName : '')
 		
 	return postcss({
 		plugins: [...plugins],
 		modules: { getJSON, ...modulesOptions },
 		namedExports,
+		extract,
+		manualInjectName,
 		...rest,
 	})
 }

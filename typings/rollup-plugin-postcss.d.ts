@@ -14,6 +14,11 @@ declare namespace rollupPostcss {
 		/** Inject CSS into `<head>`, it's always false when `extract: true`. */
 		inject?: boolean | { insertAt?: 'top' }
 		/**
+		 * define the function's name of manually inject css into <head>,
+		 * `''` represents no manually inject. Default: ''
+		 */
+		manualInjectName?: string | ((id: string) => string)
+		/**
 		 * If true, extract to the same name as Rollup’s dest (with a .css suffix).
 		 * Alternatively provide a path or do not extract (The default: false)
 		 */
